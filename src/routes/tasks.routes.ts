@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from "express";
 import type { TaskStatus } from "../models/Task.js";
 import { TaskModel } from "../models/Task.js";
+import { UserModel } from "../models/User.js";
+import { TaskReviewModel } from "../models/TaskReview.js";
 import { requireAuth } from "../middleware/auth.js";
+import { isEffectiveAdmin } from "../roles.js";
 
 const router = Router();
 
@@ -15,28 +18,64 @@ function toSummary(doc: { taskId: string; title: string; language: string; statu
   };
 }
 
-/**
- * @openapi
- * /api/tasks:
- *   get:
- *     summary: List task summaries (authenticated)
- *     tags: [Tasks]
- *     security: [{ bearerAuth: [] }]
- */
-router.get("/", requireAuth, async (_req: Request, res: Response) => {
-  const docs = await TaskModel.find().sort({ createdAt: -1 }).lean();
-  res.json(docs.map((d) => toSummary(d)));
-});
+async function isAssignedReviewer(username: string, taskId: string): Promise<boolean> {
+  const row = await TaskReviewModel.findOne({
+    taskId,
+    reviewerUsername: username.toLowerCase(),
+  }).lean();
+  return !!row;
+}
 
 /**
  * @openapi
  * /api/tasks:
- *   post:
- *     summary: Create task (authenticated)
- *     tags: [Tasks]
- *     security: [{ bearerAuth: [] }]
+ *   get:
+ *     summary: List task summaries (admin sees all + assignee; reviewer sees assigned only)
  */
+router.get("/", requireAuth, async (req: Request, res: Response) => {
+  const u = req.user!;
+  let docs: Array<{
+    taskId: string;
+    title: string;
+    language: string;
+    status: string;
+    createdAt: Date;
+  }>;
+
+  if (isEffectiveAdmin(u.username, u.role)) {
+    docs = await TaskModel.find().sort({ createdAt: -1 }).lean();
+  } else if (u.role === "reviewer") {
+    const ids = await TaskReviewModel.find({ reviewerUsername: u.username }).distinct("taskId");
+    if (ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    docs = await TaskModel.find({ taskId: { $in: ids } }).sort({ createdAt: -1 }).lean();
+  } else {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const taskIds = docs.map((d) => d.taskId);
+  const assignments =
+    taskIds.length > 0
+      ? await TaskReviewModel.find({ taskId: { $in: taskIds } }).lean()
+      : [];
+  const assignMap = Object.fromEntries(assignments.map((a) => [a.taskId, a.reviewerUsername]));
+
+  res.json(
+    docs.map((d) => ({
+      ...toSummary(d),
+      assignedReviewer: assignMap[d.taskId] ?? null,
+    }))
+  );
+});
+
 router.post("/", requireAuth, async (req: Request, res: Response) => {
+  if (!req.user || !isEffectiveAdmin(req.user.username, req.user.role)) {
+    res.status(403).json({ error: "Only admins can create tasks" });
+    return;
+  }
   try {
     const body = req.body as Record<string, unknown>;
     const taskId = String(body.id ?? `task-${Date.now()}`);
@@ -61,7 +100,7 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
       createdAt,
       data: { ...data, id: taskId, title: (data.title as string) ?? title },
     });
-    res.status(201).json(toSummary(doc));
+    res.status(201).json({ ...toSummary(doc), assignedReviewer: null });
   } catch (e) {
     console.error(e);
     res.status(400).json({ error: "Invalid request body" });
@@ -69,31 +108,79 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
 });
 
 /**
+ * Assign or reassign a reviewer to a task (admin only).
+ * POST body: { "reviewerUsername": "alice" }
+ */
+router.post("/:taskId/assignment", requireAuth, async (req: Request, res: Response) => {
+  if (!req.user || !isEffectiveAdmin(req.user.username, req.user.role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const taskId = req.params.taskId;
+  const reviewerUsername = String(req.body?.reviewerUsername ?? "").trim().toLowerCase();
+  if (!reviewerUsername) {
+    res.status(400).json({ error: "reviewerUsername required" });
+    return;
+  }
+
+  const task = await TaskModel.findOne({ taskId });
+  if (!task) {
+    res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  const reviewer = await UserModel.findOne({ username: reviewerUsername });
+  if (!reviewer || reviewer.role !== "reviewer") {
+    res.status(400).json({ error: "User is not a valid reviewer" });
+    return;
+  }
+
+  await TaskReviewModel.findOneAndUpdate(
+    { taskId },
+    {
+      taskId,
+      reviewerUsername,
+      assignedBy: req.user.username,
+      assignedAt: new Date(),
+    },
+    { upsert: true, new: true }
+  );
+
+  res.json({ ok: true, taskId, reviewerUsername });
+});
+
+/**
  * @openapi
  * /api/tasks/{taskId}:
  *   get:
  *     summary: Full task JSON (public — learner demo)
- *     tags: [Tasks]
  */
 router.get("/:taskId", async (req: Request, res: Response) => {
-  const doc = await TaskModel.findOne({ taskId: req.params.taskId });
-  if (!doc) {
+  const doc = await TaskModel.findOne({ taskId: req.params.taskId }).lean();
+  if (!doc?.data || typeof doc.data !== "object") {
     res.status(404).json({ error: "Not found" });
     return;
   }
   res.json(doc.data);
 });
 
-/**
- * @openapi
- * /api/tasks/{taskId}:
- *   put:
- *     summary: Replace task JSON (authenticated)
- *     tags: [Tasks]
- *     security: [{ bearerAuth: [] }]
- */
 router.put("/:taskId", requireAuth, async (req: Request, res: Response) => {
-  const doc = await TaskModel.findOne({ taskId: req.params.taskId });
+  const u = req.user!;
+  const taskId = req.params.taskId;
+
+  if (!isEffectiveAdmin(u.username, u.role)) {
+    if (u.role !== "reviewer") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const ok = await isAssignedReviewer(u.username, taskId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+  }
+
+  const doc = await TaskModel.findOne({ taskId });
   if (!doc) {
     res.status(404).json({ error: "Not found" });
     return;
@@ -109,20 +196,17 @@ router.put("/:taskId", requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * @openapi
- * /api/tasks/{taskId}:
- *   delete:
- *     summary: Delete task (authenticated)
- *     tags: [Tasks]
- *     security: [{ bearerAuth: [] }]
- */
 router.delete("/:taskId", requireAuth, async (req: Request, res: Response) => {
+  if (!req.user || !isEffectiveAdmin(req.user.username, req.user.role)) {
+    res.status(403).json({ error: "Only admins can delete tasks" });
+    return;
+  }
   const r = await TaskModel.deleteOne({ taskId: req.params.taskId });
   if (r.deletedCount === 0) {
     res.status(404).json({ error: "Not found" });
     return;
   }
+  await TaskReviewModel.deleteOne({ taskId: req.params.taskId }).catch(() => {});
   res.json({ ok: true });
 });
 

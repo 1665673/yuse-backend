@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { UserModel, verifyPassword } from "../models/User.js";
 import { requireAuth, signToken } from "../middleware/auth.js";
+import { isEffectiveAdmin } from "../roles.js";
 
 const router = Router();
 
@@ -57,7 +58,12 @@ router.post("/register", async (req: Request, res: Response) => {
     });
     res.status(201).json({
       token,
-      user: { id: String(user._id), username: user.username, role: user.role },
+      user: {
+        id: String(user._id),
+        username: user.username,
+        role: user.role,
+        isAdmin: isEffectiveAdmin(user.username, user.role),
+      },
     });
   } catch (e) {
     console.error(e);
@@ -88,7 +94,12 @@ router.post("/login", async (req: Request, res: Response) => {
     });
     res.json({
       token,
-      user: { id: String(user._id), username: user.username, role: user.role },
+      user: {
+        id: String(user._id),
+        username: user.username,
+        role: user.role,
+        isAdmin: isEffectiveAdmin(user.username, user.role),
+      },
     });
   } catch (e) {
     console.error(e);
@@ -105,11 +116,13 @@ router.post("/login", async (req: Request, res: Response) => {
  *     security: [{ bearerAuth: [] }]
  */
 router.get("/me", requireAuth, (req: Request, res: Response) => {
+  const u = req.user!;
   res.json({
     user: {
-      id: req.user!.sub,
-      username: req.user!.username,
-      role: req.user!.role,
+      id: u.sub,
+      username: u.username,
+      role: u.role,
+      isAdmin: isEffectiveAdmin(u.username, u.role),
     },
   });
 });

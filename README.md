@@ -13,6 +13,12 @@ npm install
 npm run dev
 ```
 
+For production (`npm start`), TypeScript is compiled to `dist/` first (via the `prestart` script). You need **devDependencies** installed so `tsc` runs (`npm install` without `--omit=dev`).
+
+**If `Cannot find module .../dist/index.js`:** run `npm run build` manually, or ensure `typescript` is installed, then `npm start` again.
+
+**Deploy with only production dependencies:** build on the build machine or in CI (`npm ci && npm run build`), copy the `dist/` folder to the server, then on the server run `npm install --omit=dev` and `node dist/index.js` (do not use `prestart` in that layout, or keep a full install and use `npm start` as below).
+
 Default port: **4000**. Open **http://localhost:4000/api-docs** for Swagger.
 
 ## Auth
