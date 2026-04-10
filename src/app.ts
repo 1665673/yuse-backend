@@ -8,8 +8,6 @@ import authRoutes from "./routes/auth.routes.js";
 import tasksRoutes from "./routes/tasks.routes.js";
 import demoRoutes from "./routes/demo.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
-import usersRoutes from "./routes/users.routes.js";
-
 export function createApp(): express.Express {
   const app = express();
 
@@ -30,7 +28,6 @@ export function createApp(): express.Express {
   });
 
   app.use("/api/auth", authRoutes);
-  app.use("/api/users", usersRoutes);
   app.use("/api/tasks", tasksRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api", demoRoutes);

@@ -31,7 +31,7 @@ async function seedSampleTaskIfEmpty(): Promise<void> {
 
   let path = config.sampleTaskPath;
   if (!path) {
-    const guess = join(process.cwd(), "../demo/public/test/yuse-task-sample.v4.8.json");
+    const guess = join(process.cwd(), "../demo/dev/task-sample.v4.8.json");
     path = existsSync(guess) ? guess : "";
   } else if (!existsSync(path)) {
     console.warn("[db] SAMPLE_TASK_PATH not found:", path);

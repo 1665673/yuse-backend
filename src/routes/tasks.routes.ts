@@ -150,6 +150,24 @@ router.post("/:taskId/assignment", requireAuth, async (req: Request, res: Respon
 });
 
 /**
+ * Stored task row + opaque `data` blob (no schema interpretation). Used by the Next.js app for export, etc.
+ */
+router.get("/:taskId/storage", async (req: Request, res: Response) => {
+  const doc = await TaskModel.findOne({ taskId: req.params.taskId }).lean();
+  if (!doc) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json({
+    taskId: doc.taskId,
+    status: doc.status,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+    data: doc.data,
+  });
+});
+
+/**
  * @openapi
  * /api/tasks/{taskId}:
  *   get:

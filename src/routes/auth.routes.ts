@@ -127,4 +127,16 @@ router.get("/me", requireAuth, (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Reviewer usernames for the admin assign-task dropdown (same data as former GET /api/users/reviewers).
+ */
+router.get("/reviewers", requireAuth, async (req: Request, res: Response) => {
+  if (!req.user || !isEffectiveAdmin(req.user.username, req.user.role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const reviewers = await UserModel.find({ role: "reviewer" }).select("username").sort({ username: 1 }).lean();
+  res.json({ reviewers: reviewers.map((u) => ({ username: u.username })) });
+});
+
 export default router;
