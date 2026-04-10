@@ -13,11 +13,11 @@ npm install
 npm run dev
 ```
 
-For production (`npm start`), TypeScript is compiled to `dist/` first (via the `prestart` script). You need **devDependencies** installed so `tsc` runs (`npm install` without `--omit=dev`).
+For production, `npm start` (or `npm run serve-dist`) runs **`node dist/index.js` only** — it does **not** run `tsc`, so it will not interrupt a running server or trigger a full compile. The `dist/` folder is kept in the repo; after editing `src/`, run **`npm run build`** and commit the updated `dist/` if you rely on checked-in output.
 
-**If `Cannot find module .../dist/index.js`:** run `npm run build` manually, or ensure `typescript` is installed, then `npm start` again.
+**If `Cannot find module .../dist/index.js`:** run `npm run build` once (requires `typescript` in devDependencies), or pull a revision that includes `dist/`.
 
-**Deploy with only production dependencies:** build on the build machine or in CI (`npm ci && npm run build`), copy the `dist/` folder to the server, then on the server run `npm install --omit=dev` and `node dist/index.js` (do not use `prestart` in that layout, or keep a full install and use `npm start` as below).
+**Deploy with only production dependencies:** on the server, `npm install --omit=dev` and `npm start` (or `node dist/index.js`) as long as `dist/` is present. To rebuild from source in CI, use `npm ci && npm run build` then deploy `dist/` (and `package.json` / lockfile as needed).
 
 Default port: **4000**. Open **http://localhost:4000/api-docs** for Swagger.
 
