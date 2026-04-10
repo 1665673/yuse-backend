@@ -28,8 +28,10 @@ router.post("/", requireAuth, upload.single("file"), (req, res) => {
         res.status(400).json({ error: "No file provided" });
         return;
     }
-    const base = process.env.PUBLIC_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}`;
-    const url = `${base}/uploads/${req.file.filename}`;
+    const path = `/uploads/${req.file.filename}`;
+    /** Optional absolute base when the API is on a different public host than the Next app (omit for same-origin `/uploads/...` via proxy). */
+    const base = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "");
+    const url = base ? `${base}${path}` : path;
     res.json({ url });
 });
 export default router;
